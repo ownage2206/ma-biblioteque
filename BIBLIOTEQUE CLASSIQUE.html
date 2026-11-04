@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="fr" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Les Grimoires et Chroniques</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome pour les icônes -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Cinzel Decorative & Lora -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700;900&family=Lora:ital,wght@0,400..700;1,400..700&family=MedievalSharp&display=swap" rel="stylesheet">
+    <!-- JSZip pour la lecture directe des fichiers EPUB -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Dexie.js pour IndexedDB (Stockage illimité des couvertures) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.4/dexie.min.js"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        leather: '#3d2314',
+                        leatherDark: '#22120a',
+                        parchment: '#f4ebd0',
+                        parchmentDark: '#e3d2ab',
+                        goldLeaf: '#d4af37',
+                        goldDark: '#997a15',
+                        crimson: '#6b1d1d'
+                    },
+                    fontFamily: {
+                        cinzel: ['"Cinzel Decorative"', 'serif'],
+                        lora: ['Lora', 'serif'],
+                        medieval: ['MedievalSharp', 'cursive']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #1a0f08;
+            color: #f4ebd0;
+            font-family: 'Lora', serif;
+            background-image: radial-gradient(circle, #2d190e 0%, #110804 100%);
+        }
+        .wood-shelf {
+            background: linear-gradient(to bottom, #4a2c11 0%, #321c0b 100%);
+            box-shadow: 0 10px 25px rgba(0,0,0,0.8), inset 0 2px 5px rgba(255,255,255,0.15), inset 0 -4px 6px rgba(0,0,0,0.6);
+            border-bottom: 6px solid #1a0d05;
+            border-radius: 4px;
+        }
+        .grimoire-page {
+            transition: background-color 0.4s ease, background-image 0.4s ease;
+            color: #f4ebd0;
+        }
+        .shelf-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: flex-start;
+            gap: 12px;
+            padding: 24px 24px 8px 24px;
+            min-height: 220px;
+            overflow-x: auto;
+            flex-nowrap: nowrap;
+        }
+        .book-spine {
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            user-select: none;
+            z-index: 10;
+            flex-shrink: 0;
+        }
+        .book-spine.shift-right {
+            transform: translateX(150px);
+        }
+        .book-spine.is-hovered {
+            z-index: 50;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* Panneau latéral Spotify ancré à droite sur toute la hauteur */
+        #spotify-drawer {
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #spotify-drawer.closed {
+            transform: translateX(100%);
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col min-h-screen">
+
+    <!-- PANNEAU LATÉRAL SPOTIFY (Droite - Pleine Hauteur) -->
+    <div id="spotify-drawer" class="closed fixed top-0 right-0 h-screen w-80 bg-leatherDark/95 border-l-2 border-goldLeaf/40 shadow-2xl z-50 flex flex-col backdrop-blur-md p-4">
+        <div class="flex items-center justify-between pb-4 border-b border-goldLeaf/30 mb-4 flex-shrink-0">
+            <div class="flex items-center gap-2 text-goldLeaf font-cinzel font-bold text-sm">
+                <i class="fa-brands fa-spotify text-lg text-goldLeaf"></i> Ambiance Sonore
+            </div>
+            <button onclick="toggleSpotifyDrawer()" class="w-8 h-8 rounded-full bg-leather text-goldLeaf hover:bg-goldLeaf hover:text-leatherDark flex items-center justify-center transition-colors border border-goldLeaf/40 text-sm">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <!-- Lecteur Intégré (Hauteur allongée à 650px) -->
+        <div class="flex-grow flex flex-col justify-center hidden md:flex my-auto">
+            <iframe style="border-radius:12px" src="https://open.spotify.com/embed/playlist/2Y73njm5d4enXmGuuZokdl?utm_source=generator&theme=0" width="100%" height="650" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+        </div>
+
+        <!-- Bouton d'ouverture directe -->
+        <div class="mt-auto pt-4 border-t border-goldLeaf/30 flex flex-col gap-2 flex-shrink-0">
+            <a href="https://open.spotify.com/playlist/2Y73njm5d4enXmGuuZokdl" target="_blank" class="w-full py-3 bg-leather hover:bg-leatherDark text-goldLeaf font-cinzel font-bold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all border border-goldLeaf/40">
+                <i class="fa-brands fa-spotify text-base"></i> Ouvrir dans l'app Spotify
+            </a>
+        </div>
+    </div>
+
+    <!-- En-tête Magique -->
+    <header class="bg-leatherDark/90 border-b-2 border-goldLeaf/40 py-6 px-4 md:px-12 sticky top-0 z-40 backdrop-blur-md shadow-2xl">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-book-skull text-goldLeaf text-3xl md:text-4xl"></i>
+                <div>
+                    <h1 class="text-2xl md:text-4xl font-cinzel font-bold text-goldLeaf tracking-wider">Les Grimoires et Chroniques</h1>
+                    <p class="text-xs md:text-sm font-lora text-parchment/70 italic">Votre bibliothèque fantastique personnelle</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button onclick="switchView('library')" id="btn-view-library" class="px-4 py-2 bg-goldLeaf text-leatherDark font-cinzel font-bold text-xs md:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-book-bookmark"></i> Bibliothèque
+                </button>
+                <button onclick="switchView('timeline')" id="btn-view-timeline" class="px-4 py-2 bg-leather text-goldLeaf border border-goldLeaf/40 font-cinzel font-semibold text-xs md:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 hover:bg-leather/80">
+                    <i class="fa-solid fa-timeline"></i> Chronologie
+                </button>
+                <!-- Bouton Spotify épuré (icône seule encadrée) -->
+                <button onclick="toggleSpotifyDrawer()" title="Ouvrir la playlist Spotify" class="w-10 h-10 bg-leather text-goldLeaf border border-goldLeaf/40 rounded-xl shadow-lg transition-all flex items-center justify-center hover:bg-leather/80">
+                    <i class="fa-brands fa-spotify text-base"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Contenu Principal -->
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-8 flex flex-col gap-8">
+
+        <!-- Barre de Recherche et Filtres (Toujours visible) -->
+        <section id="library-controls" class="flex flex-col lg:flex-row items-center justify-between gap-4 bg-leather/60 backdrop-blur-md p-4 rounded-2xl border border-goldLeaf/30 shadow-xl">
+            <!-- Recherche alignée à gauche -->
+            <div class="relative w-full lg:w-72 flex-shrink-0">
+                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-goldLeaf/70"></i>
+                <input type="text" id="search-input" oninput="filterBooks()" placeholder="Rechercher par titre, auteur..." class="w-full bg-leatherDark/80 text-parchment placeholder-parchment/50 pl-10 pr-4 py-2.5 rounded-xl border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf text-sm shadow-inner font-lora">
+            </div>
+
+            <!-- Import et Filtres -->
+            <div class="flex flex-wrap items-center justify-center lg:justify-end gap-3 w-full lg:w-auto">
+                <label class="cursor-pointer px-4 py-2.5 bg-gradient-to-r from-goldDark via-goldLeaf to-goldDark text-leatherDark font-cinzel font-bold text-xs rounded-xl shadow hover:opacity-95 transition-all flex items-center gap-2 flex-grow lg:flex-grow-0 justify-center">
+                    <i class="fa-solid fa-file-arrow-up text-sm"></i> Importer grimoire
+                    <input type="file" id="epub-file-input" accept=".epub" multiple onchange="handleEpubImports(event)" class="hidden">
+                </label>
+
+                <!-- Genres -->
+                <select id="genre-filter" onchange="filterBooks()" class="bg-leatherDark/80 text-parchment px-4 py-2.5 rounded-xl border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf text-sm font-lora cursor-pointer flex-grow lg:flex-grow-0 max-w-[200px]">
+                    <option value="">Tous les Genres</option>
+                </select>
+
+                <!-- Sagas -->
+                <select id="saga-filter" onchange="filterBooks()" class="bg-leatherDark/80 text-parchment px-4 py-2.5 rounded-xl border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf text-sm font-lora cursor-pointer flex-grow lg:flex-grow-0 max-w-[200px]">
+                    <option value="">Toutes les Sagas</option>
+                </select>
+
+                <!-- Statuts -->
+                <select id="status-filter" onchange="filterBooks()" class="bg-leatherDark/80 text-parchment px-4 py-2.5 rounded-xl border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf text-sm font-lora cursor-pointer flex-grow lg:flex-grow-0">
+                    <option value="">Tous les Statuts</option>
+                    <option value="reading">En cours</option>
+                    <option value="finished">Terminés</option>
+                    <option value="unread">Non commencés</option>
+                </select>
+            </div>
+        </section>
+
+        <!-- VUE BIBLIOTHÈQUE -->
+        <section id="view-library" class="flex flex-col gap-10">
+            <div id="shelves-container" class="flex flex-col gap-8">
+                <!-- Rempli dynamiquement -->
+            </div>
+        </section>
+
+        <!-- VUE CHRONOLOGIE -->
+        <section id="view-timeline" class="hidden flex flex-col gap-6">
+            <div class="bg-leather/80 p-6 rounded-2xl border border-goldLeaf/40 shadow-xl text-center">
+                <h2 class="text-2xl font-cinzel text-goldLeaf mb-2">Chronologie des Épopées Terminées</h2>
+                <p class="text-parchment/80 text-sm">Le voyage de vos lectures classé par date de fin d'achèvement.</p>
+            </div>
+
+            <div id="timeline-container" class="relative border-l-4 border-goldLeaf ml-4 md:ml-8 pl-6 md:pl-8 py-4 flex flex-col gap-8">
+                <!-- Rempli dynamiquement -->
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL DÉTAIL DU LIVRE -->
+    <div id="book-modal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-2 md:p-6 overflow-y-auto">
+        <div id="modal-box" class="grimoire-page w-full max-w-5xl rounded-3xl p-6 md:p-10 relative shadow-2xl border-2 border-goldLeaf my-auto flex flex-col h-auto max-h-[92vh] overflow-y-auto no-scrollbar">
+            
+            <button onclick="closeBookModal()" class="absolute top-4 right-4 w-10 h-10 rounded-full bg-leatherDark text-goldLeaf hover:bg-crimson hover:text-white flex items-center justify-center transition-colors border border-goldLeaf/50 shadow-lg text-lg z-20">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start my-auto">
+                <div class="flex flex-col gap-4">
+                    <div>
+                        <div id="modal-genres-container" class="flex flex-wrap gap-1.5 mb-2"></div>
+                        <h2 id="modal-title" class="text-2xl md:text-3xl font-cinzel font-bold text-goldLeaf leading-tight">Titre du Livre</h2>
+                        <h3 id="modal-author" class="text-lg font-lora italic text-parchment/80 mt-1">par Auteur</h3>
+                    </div>
+
+                    <div class="bg-black/30 p-4 rounded-xl border border-goldLeaf/30 text-sm flex flex-col gap-2 shadow-inner">
+                        <div class="flex justify-between items-center border-b border-goldLeaf/20 pb-1.5">
+                            <span class="font-semibold text-goldLeaf/90">ISBN :</span>
+                            <span id="modal-isbn" class="font-mono text-parchment font-medium text-xs bg-black/40 px-2 py-0.5 rounded border border-goldLeaf/20"></span>
+                        </div>
+                        <div class="flex justify-between items-center" id="modal-saga-row">
+                            <span class="font-semibold text-goldLeaf/90">Saga :</span>
+                            <span id="modal-saga-info" class="text-parchment font-medium"></span>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                        <span class="text-xs font-bold uppercase tracking-wider text-goldLeaf/80 font-cinzel flex items-center gap-1.5">
+                            <i class="fa-solid fa-book-open"></i> Description complète de l'EPUB
+                        </span>
+                        <div id="modal-description" class="text-sm leading-relaxed text-parchment/90 bg-black/25 p-3.5 rounded-xl border border-goldLeaf/20 font-lora h-auto"></div>
+                    </div>
+
+                    <div class="bg-leatherDark/90 text-parchment p-4 rounded-2xl border border-goldLeaf/40 shadow-lg flex flex-col gap-3 mt-1">
+                        <h4 class="font-cinzel text-goldLeaf text-sm font-semibold tracking-wide border-b border-goldLeaf/30 pb-1.5 flex items-center gap-2">
+                            <i class="fa-solid fa-feather-pointed"></i> Journal de Pèlerinage (Lecture)
+                        </h4>
+                        
+                        <div class="grid grid-cols-2 gap-3 text-xs">
+                            <div class="flex flex-col gap-1">
+                                <label class="text-parchment/80 font-lora">Début de lecture</label>
+                                <input type="date" id="input-start-date" class="bg-leather text-parchment px-3 py-2 rounded-lg border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf">
+                            </div>
+                            <div class="flex flex-col gap-1">
+                                <label class="text-parchment/80 font-lora">Fin de lecture</label>
+                                <input type="date" id="input-end-date" class="bg-leather text-parchment px-3 py-2 rounded-lg border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf">
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col gap-1 text-xs">
+                            <label class="text-parchment/80 font-lora">Commentaires et pensées personnelles</label>
+                            <textarea id="input-comment" rows="3" placeholder="Inscrivez vos réflexions sur cet ouvrage..." class="bg-leather text-parchment p-3 rounded-lg border border-goldLeaf/40 focus:outline-none focus:border-goldLeaf text-xs font-lora resize-none"></textarea>
+                        </div>
+
+                        <button onclick="saveBookProgress()" class="w-full py-2 bg-gradient-to-r from-goldDark via-goldLeaf to-goldDark text-leatherDark font-cinzel font-bold rounded-lg shadow hover:opacity-95 transition-all text-xs tracking-wider uppercase">
+                            <i class="fa-solid fa-floppy-disk mr-1"></i> Sauvegarder les notes
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-6 items-center relative">
+                    <button onclick="deleteCurrentBook()" title="Supprimer ce livre" class="absolute top-7 right-0 text-parchment/60 hover:text-crimson text-lg transition-colors p-1 z-10">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+
+                    <div class="relative group w-64 md:w-72 aspect-[2/3] rounded-2xl overflow-hidden shadow-2xl border-4 border-goldLeaf/60 bg-leatherDark mt-4">
+                        <img id="modal-cover" src="" alt="Couverture" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" onerror="this.src='https://placehold.co/400x600/4a2511/d4af37?text=Couverture+Introuvable'">
+                    </div>
+
+                    <div class="w-full flex flex-col gap-2">
+                        <button onclick="launchEpubReader()" class="w-full py-3.5 px-6 bg-gradient-to-r from-amber-700 via-amber-600 to-amber-700 hover:from-amber-600 hover:to-amber-500 text-parchment font-cinzel font-bold text-base rounded-xl shadow-xl border-2 border-goldLeaf flex items-center justify-center gap-3 transition-transform hover:scale-[1.02]">
+                            <i class="fa-solid fa-book-open-reader text-goldLeaf text-xl"></i> Commencer la lecture
+                        </button>
+                    </div>
+
+                    <div class="w-full bg-black/30 p-4 rounded-2xl border border-goldLeaf/30 flex flex-col gap-2 shadow-inner">
+                        <h4 class="text-xs font-bold uppercase tracking-wider text-goldLeaf font-cinzel flex items-center gap-2">
+                            <i class="fa-solid fa-layer-group text-goldLeaf"></i> Tomes de la même Saga
+                        </h4>
+                        <div id="modal-saga-books" class="flex flex-row flex-nowrap gap-3 overflow-x-auto p-1 no-scrollbar justify-start items-center"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast de Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 bg-leatherDark text-parchment px-6 py-3 rounded-xl border border-goldLeaf shadow-2xl transition-all duration-300 transform translate-y-20 opacity-0 flex items-center gap-3">
+        <i class="fa-solid fa-scroll text-goldLeaf text-lg"></i>
+        <span id="toast-message" class="text-sm font-lora">Notification</span>
+    </div>
+
+    <!-- Pied de page -->
+    <footer class="mt-auto py-6 bg-leatherDark border-t border-goldLeaf/30 text-center text-parchment/60 text-xs font-lora">
+        <p>Les Grimoires et Chroniques</p>
+    </footer>
+
+    <!-- Logique JavaScript avec IndexedDB (Dexie) -->
+    <script>
+        const db = new Dexie('GrimoiresChroniclesDB');
+        db.version(1).stores({
+            books: 'id, title, author, genre, saga, endDate'
+        });
+
+        const defaultBooks = [
+            {
+                id: 1,
+                title: "La Communauté de l'Anneau",
+                author: "J.R.R. Tolkien",
+                genre: "High Fantasy",
+                saga: "Le Seigneur des Anneaux",
+                isbn: "978-2070612888",
+                cover: "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=400",
+                description: "Dans les prairies paisibles de la Comté, le jeune Hobbit Frodon Sacquet hérite d'un anneau magique...",
+                startDate: "2026-01-10",
+                endDate: "2026-01-25",
+                comment: "Une introduction extraordinaire à la Terre du Milieu.",
+                filePath: "lotr1.epub"
+            },
+            {
+                id: 2,
+                title: "La Communauté de l'Anneau - Double",
+                author: "J.R.R. Tolkien",
+                genre: "High Fantasy",
+                saga: "Le Seigneur des Anneaux",
+                isbn: "978-2070612895",
+                cover: "https://images.unsplash.com/photo-1516979187457-637abb4f9353?auto=format&fit=crop&q=80&w=400",
+                description: "La Communauté est dispersée. Frodon et Sam continuent leur route vers le Mordor seuls.",
+                startDate: "2026-01-26",
+                endDate: "2026-02-12",
+                comment: "Le personnage de Gollum prend toute son envergure psychologique ici.",
+                filePath: "lotr2.epub"
+            }
+        ];
+
+        let books = [];
+        let currentSelectedBookId = null;
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await initDatabase();
+            populateFilters();
+            renderLibrary();
+            renderTimeline();
+        });
+
+        // Gestion du panneau Spotify
+        function toggleSpotifyDrawer() {
+            const drawer = document.getElementById('spotify-drawer');
+            drawer.classList.toggle('closed');
+        }
+
+        async function initDatabase() {
+            const count = await db.books.count();
+            if (count === 0) {
+                await db.books.bulkAdd(defaultBooks);
+            }
+            books = await db.books.toArray();
+        }
+
+        async function saveBooksToStorage() {
+            await db.books.clear();
+            await db.books.bulkAdd(books);
+        }
+
+        async function getDominantColor(imgSrc) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.src = imgSrc;
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 30;
+                    canvas.height = 40;
+                    try {
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                        const colorCounts = {};
+
+                        for (let i = 0; i < data.length; i += 16) {
+                            const r = data[i];
+                            const g = data[i+1];
+                            const b = data[i+2];
+
+                            const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                            const max = Math.max(r, g, b);
+                            const min = Math.min(r, g, b);
+                            const saturation = max === 0 ? 0 : (max - min) / max;
+
+                            if (brightness > 120 || saturation < 0.2) continue; 
+
+                            const qr = Math.round(r / 30) * 30;
+                            const qg = Math.round(g / 30) * 30;
+                            const qb = Math.round(b / 30) * 30;
+                            const rgbKey = `${qr},${qg},${qb}`;
+
+                            colorCounts[rgbKey] = (colorCounts[rgbKey] || 0) + 1;
+                        }
+
+                        const sortedColors = Object.keys(colorCounts).sort((a, b) => colorCounts[b] - colorCounts[a]);
+
+                        if (sortedColors.length > 0) {
+                            resolve(`rgb(${sortedColors[0]})`);
+                        } else {
+                            resolve('rgb(61, 35, 20)');
+                        }
+                    } catch (e) {
+                        resolve('rgb(61, 35, 20)');
+                    }
+                };
+                img.onerror = () => resolve('rgb(61, 35, 20)');
+            });
+        }
+
+        function lightenRgb(rgbString, percent) {
+            const match = rgbString.match(/\d+/g);
+            if (!match) return '#3d2314';
+            let [r, g, b] = match.map(Number);
+            r = Math.min(255, Math.floor(r + (255 - r) * (percent / 100)));
+            g = Math.min(255, Math.floor(g + (255 - g) * (percent / 100)));
+            b = Math.min(255, Math.floor(b + (255 - b) * (percent / 100)));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        async function handleEpubImports(event) {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+
+            showToast(`Extraction magique de ${files.length} EPUB(s)...`);
+
+            for (let file of files) {
+                try {
+                    const zip = new JSZip();
+                    const zipContent = await zip.loadAsync(file);
+
+                    const containerFile = zipContent.file("META-INF/container.xml");
+                    if (!containerFile) continue;
+                    const containerText = await containerFile.async("text");
+                    const parser = new DOMParser();
+                    const containerXml = parser.parseFromString(containerText, "text/xml");
+                    const rootfileElement = containerXml.querySelector("rootfile");
+                    if (!rootfileElement) continue;
+
+                    const opfPath = rootfileElement.getAttribute("full-path");
+                    const opfFile = zipContent.file(opfPath);
+                    if (!opfFile) continue;
+
+                    const opfText = await opfFile.async("text");
+                    const opfXml = parser.parseFromString(opfText, "text/xml");
+
+                    const getMetaText = (selectors) => {
+                        for (let sel of selectors) {
+                            const el = opfXml.querySelector(sel);
+                            if (el && el.textContent.trim()) return el.textContent.trim();
+                        }
+                        return "";
+                    };
+
+                    const title = getMetaText(["title", "dc\\:title", "[name='dc:title']"]) || file.name.replace(/\.[^/.]+$/, "");
+                    const author = getMetaText(["creator", "dc\\:creator", "[name='dc:creator']"]) || "Auteur Inconnu";
+                    const description = getMetaText(["description", "dc\\:description", "[name='dc:description']"]) || "Aucune description fournie dans cet EPUB.";
+                    let genre = getMetaText(["subject", "dc\\:subject", "[name='dc:subject']"]) || "Fantasy";
+
+                    let isbn = "";
+                    const identifiers = opfXml.querySelectorAll("identifier, dc\\:identifier, [name='dc:identifier']");
+                    for (let idEl of identifiers) {
+                        const txt = idEl.textContent.trim();
+                        const scheme = (idEl.getAttribute("opf:scheme") || idEl.getAttribute("scheme") || "").toLowerCase();
+                        if (scheme.includes("isbn") || txt.replace(/[-\s]/g, "").length >= 10) {
+                            isbn = txt;
+                            if (scheme.includes("isbn")) break;
+                        }
+                    }
+                    isbn = isbn || "Non répertorié";
+
+                    let sagaName = "";
+                    let tomeNumberExtracted = 1;
+
+                    const seriesMeta = opfXml.querySelector("[name='calibre:series'], [property='belongs-to-collection'], series");
+                    const seriesIndexMeta = opfXml.querySelector("[name='calibre:series_index'], [property='group-position'], volume");
+
+                    if (seriesMeta) {
+                        sagaName = seriesMeta.textContent.trim() || seriesMeta.getAttribute("content");
+                    }
+
+                    if (seriesIndexMeta) {
+                        const idxVal = parseFloat(seriesIndexMeta.textContent.trim() || seriesIndexMeta.getAttribute("content"));
+                        if (!isNaN(idxVal)) tomeNumberExtracted = idxVal;
+                    }
+
+                    let coverDataUrl = "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&q=80&w=400";
+                    let coverItem = opfXml.querySelector("item[properties*='cover-image']") || 
+                                    opfXml.querySelector("item[id*='cover' i], item[href*='cover' i]");
+
+                    if (coverItem) {
+                        let coverHref = coverItem.getAttribute("href");
+                        const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
+                        const fullCoverPath = opfDir + coverHref;
+
+                        const imageFile = zipContent.file(fullCoverPath) || zipContent.file(coverHref);
+                        if (imageFile) {
+                            const imageBlob = await imageFile.async("blob");
+                            coverDataUrl = await new Promise((resolve) => {
+                                const reader = new FileReader();
+                                reader.onloadend = () => resolve(reader.result);
+                                reader.readAsDataURL(imageBlob);
+                            });
+                        }
+                    }
+
+                    const existingIndex = books.findIndex(b => b.title.toLowerCase() === title.toLowerCase() && b.author.toLowerCase() === author.toLowerCase());
+                    const newBookObj = {
+                        id: books.length > 0 ? Math.max(...books.map(b => b.id)) + 1 : 1,
+                        title: title,
+                        author: author,
+                        genre: genre,
+                        saga: sagaName,
+                        tome: tomeNumberExtracted,
+                        isbn: isbn,
+                        cover: coverDataUrl,
+                        description: description,
+                        startDate: "",
+                        endDate: "",
+                        comment: "",
+                        filePath: file.name
+                    };
+
+                    if (existingIndex >= 0) {
+                        newBookObj.startDate = books[existingIndex].startDate;
+                        newBookObj.endDate = books[existingIndex].endDate;
+                        newBookObj.comment = books[existingIndex].comment;
+                        books[existingIndex] = newBookObj;
+                    } else {
+                        books.push(newBookObj);
+                    }
+
+                } catch (err) {
+                    console.error("Erreur lors de l'extraction de l'EPUB:", err);
+                }
+            }
+
+            await saveBooksToStorage();
+            populateFilters();
+            renderLibrary();
+            renderTimeline();
+            showToast("Importation réussie !");
+            event.target.value = '';
+        }
+
+        async function renderLibrary() {
+            const container = document.getElementById('shelves-container');
+            container.innerHTML = '';
+
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const genreFilter = document.getElementById('genre-filter').value;
+            const sagaFilter = document.getElementById('saga-filter').value;
+            const statusFilter = document.getElementById('status-filter').value;
+
+            const filteredBooks = books.filter(book => {
+                const matchesSearch = book.title.toLowerCase().includes(searchTerm) || 
+                                      book.author.toLowerCase().includes(searchTerm);
+                const matchesGenre = !genreFilter || book.genre === genreFilter;
+                const matchesSaga = !sagaFilter || book.saga === sagaFilter;
+                
+                let matchesStatus = true;
+                if (statusFilter === 'finished') matchesStatus = Boolean(book.endDate);
+                else if (statusFilter === 'reading') matchesStatus = Boolean(book.startDate && !book.endDate);
+                else if (statusFilter === 'unread') matchesStatus = !book.startDate && !book.endDate;
+
+                return matchesSearch && matchesGenre && matchesSaga && matchesStatus;
+            }).sort((a, b) => {
+                const authorComp = a.author.localeCompare(b.author, 'fr', { sensitivity: 'base' });
+                if (authorComp !== 0) return authorComp;
+                return a.title.localeCompare(b.title, 'fr', { sensitivity: 'base' });
+            });
+
+            if (filteredBooks.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-leather/40 p-12 rounded-3xl text-center border border-goldLeaf/30 flex flex-col items-center gap-4">
+                        <i class="fa-solid fa-ghost text-goldLeaf text-4xl"></i>
+                        <p class="text-parchment font-lora">Aucun grimoire trouvé dans les arcanes de la bibliothèque.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Fixé à 15 livres max par étagère
+            const chunkSize = 15;
+            for (let i = 0; i < filteredBooks.length; i += chunkSize) {
+                const shelfItems = filteredBooks.slice(i, i + chunkSize);
+                
+                const shelfWrapper = document.createElement('div');
+                shelfWrapper.className = 'flex flex-col gap-2';
+
+                const shelfSpineRow = document.createElement('div');
+                shelfSpineRow.className = 'shelf-row';
+
+                for (let book of shelfItems) {
+                    const spine = document.createElement('div');
+                    spine.className = `book-spine h-56 w-12 rounded-t-lg border-x border-goldLeaf/50 shadow-2xl flex flex-col items-center justify-between py-3 px-0.5 relative group`;
+                    spine.style.backgroundColor = '#3d2314';
+
+                    getDominantColor(book.cover).then(color => {
+                        spine.style.backgroundColor = color;
+                    });
+
+                    spine.innerHTML = `
+                        <div class="text-[9px] text-goldLeaf font-cinzel font-bold tracking-wider uppercase whitespace-nowrap text-center drop-shadow">${book.saga ? `Tome ${book.tome || 1}` : 'Roman'}</div>
+                        <div class="text-[9.5px] text-parchment font-cinzel font-bold tracking-wider w-full text-center my-auto px-0.5 drop-shadow" style="display: -webkit-box; -webkit-line-clamp: 7; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word;">${escapeHtml(book.title)}</div>
+                        <div class="text-[8px] text-parchment/90 font-lora truncate w-full text-center drop-shadow">${escapeHtml(book.author)}</div>
+
+                        <div class="absolute top-0 left-full ml-2 w-36 aspect-[2/3] bg-leatherDark rounded-xl shadow-2xl border-2 border-goldLeaf p-1 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-300 z-40">
+                            <img src="${book.cover}" alt="${escapeHtml(book.title)}" class="w-full h-full object-contain rounded-lg bg-black/40" onerror="this.src='https://placehold.co/300x450/4a2511/d4af37?text=Couverture'">
+                        </div>
+                    `;
+
+                    spine.addEventListener('mouseenter', () => {
+                        spine.classList.add('is-hovered');
+                        const allSpines = Array.from(shelfSpineRow.children);
+                        const currentIndex = allSpines.indexOf(spine);
+                        for (let j = currentIndex + 1; j < allSpines.length; j++) {
+                            allSpines[j].classList.add('shift-right');
+                        }
+                    });
+
+                    spine.addEventListener('mouseleave', () => {
+                        spine.classList.remove('is-hovered');
+                        const allSpines = Array.from(shelfSpineRow.children);
+                        allSpines.forEach(s => s.classList.remove('shift-right'));
+                    });
+
+                    spine.onclick = () => openBookModal(book.id);
+                    shelfSpineRow.appendChild(spine);
+                }
+
+                shelfWrapper.appendChild(shelfSpineRow);
+
+                const woodPlank = document.createElement('div');
+                woodPlank.className = 'wood-shelf h-6 w-full rounded-b-lg';
+                shelfWrapper.appendChild(woodPlank);
+
+                container.appendChild(shelfWrapper);
+            }
+        }
+
+        async function openBookModal(bookId) {
+            currentSelectedBookId = bookId;
+            const book = books.find(b => b.id === bookId);
+            if (!book) return;
+
+            document.getElementById('modal-title').textContent = book.title;
+            document.getElementById('modal-author').textContent = `par ${book.author}`;
+            document.getElementById('modal-isbn').textContent = book.isbn || "Non répertorié";
+            
+            const genresContainer = document.getElementById('modal-genres-container');
+            genresContainer.innerHTML = '';
+            const rawGenreStr = book.genre || "Fantasy";
+            rawGenreStr.split(',').forEach(g => {
+                const clean = g.trim();
+                if (clean) {
+                    const badge = document.createElement('span');
+                    badge.className = "px-3 py-1 bg-black/30 text-goldLeaf border border-goldLeaf/40 rounded-full text-xs font-semibold tracking-wider uppercase";
+                    badge.textContent = clean;
+                    genresContainer.appendChild(badge);
+                }
+            });
+
+            const descEl = document.getElementById('modal-description');
+            descEl.textContent = book.description || "Aucune description détaillée n'est disponible pour cet ouvrage.";
+
+            document.getElementById('modal-cover').src = book.cover;
+
+            document.getElementById('input-start-date').value = book.startDate || '';
+            document.getElementById('input-end-date').value = book.endDate || '';
+            document.getElementById('input-comment').value = book.comment || '';
+
+            const modalBox = document.getElementById('modal-box');
+            modalBox.style.backgroundColor = '#2a170f';
+            const dominantRgb = await getDominantColor(book.cover);
+            const lighterColor = lightenRgb(dominantRgb, 15);
+            modalBox.style.backgroundColor = lighterColor;
+            modalBox.style.backgroundImage = `radial-gradient(circle, ${lighterColor} 0%, #150a06 100%)`;
+
+            const sagaRow = document.getElementById('modal-saga-row');
+            const sagaInfo = document.getElementById('modal-saga-info');
+            const sagaBooksContainer = document.getElementById('modal-saga-books');
+            sagaBooksContainer.innerHTML = '';
+
+            if (book.saga) {
+                sagaRow.style.display = 'flex';
+                sagaInfo.textContent = book.saga;
+
+                const sameSagaBooks = books.filter(b => b.saga === book.saga).sort((a, b) => (a.tome || 1) - (b.tome || 1));
+                
+                sameSagaBooks.forEach(sagaBook => {
+                    const coverCard = document.createElement('div');
+                    coverCard.className = `relative group cursor-pointer w-14 h-20 flex-shrink-0 rounded-lg overflow-hidden border-2 transition-all ${sagaBook.id === book.id ? 'border-goldDark ring-2 ring-goldLeaf scale-105 shadow-lg' : 'border-goldLeaf/40 hover:scale-105 hover:border-goldLeaf shadow'}`;
+                    coverCard.title = `${sagaBook.title} (Tome ${sagaBook.tome || 1})`;
+                    
+                    coverCard.innerHTML = `
+                        <img src="${sagaBook.cover}" alt="${escapeHtml(sagaBook.title)}" class="w-full h-full object-cover" onerror="this.src='https://placehold.co/100x150/4a2511/d4af37?text=Cover'">
+                        <div class="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center p-1 text-center">
+                            <span class="text-[9px] text-goldLeaf font-cinzel font-bold leading-tight">T.${sagaBook.tome || 1}</span>
+                        </div>
+                    `;
+                    coverCard.onclick = () => openBookModal(sagaBook.id);
+                    sagaBooksContainer.appendChild(coverCard);
+                });
+            } else {
+                sagaRow.style.display = 'none';
+                sagaBooksContainer.innerHTML = '<span class="text-xs text-parchment/60 italic">Ce grimoire n\'appartient à aucune saga répertoriée.</span>';
+            }
+
+            document.getElementById('book-modal').classList.remove('hidden');
+        }
+
+        function closeBookModal() {
+            document.getElementById('book-modal').classList.add('hidden');
+            currentSelectedBookId = null;
+        }
+
+        async function saveBookProgress() {
+            if (!currentSelectedBookId) return;
+            const book = books.find(b => b.id === currentSelectedBookId);
+            if (!book) return;
+
+            book.startDate = document.getElementById('input-start-date').value;
+            book.endDate = document.getElementById('input-end-date').value;
+            book.comment = document.getElementById('input-comment').value;
+
+            await saveBooksToStorage();
+            renderLibrary();
+            renderTimeline();
+            showToast("Notes sauvegardées !");
+            closeBookModal();
+        }
+
+        async function deleteCurrentBook() {
+            if (!currentSelectedBookId) return;
+            const bookIndex = books.findIndex(b => b.id === currentSelectedBookId);
+            if (bookIndex === -1) return;
+
+            const bookTitle = books[bookIndex].title;
+            if (confirm(`Voulez-vous supprimer "${bookTitle}" ?`)) {
+                books.splice(bookIndex, 1);
+                await saveBooksToStorage();
+                populateFilters();
+                renderLibrary();
+                renderTimeline();
+                closeBookModal();
+                showToast(`"${bookTitle}" supprimé.`);
+            }
+        }
+
+        function launchEpubReader() {
+            const book = books.find(b => b.id === currentSelectedBookId);
+            if (!book) return;
+            showToast(`Ouverture de "${book.title}"...`);
+        }
+
+        function renderTimeline() {
+            const container = document.getElementById('timeline-container');
+            container.innerHTML = '';
+
+            const finishedBooks = books.filter(b => b.endDate).sort((a, b) => new Date(b.endDate) - new Date(a.endDate));
+
+            if (finishedBooks.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-leather/40 p-8 rounded-2xl text-center border border-goldLeaf/30 text-parchment/70 font-lora">
+                        Aucun grimoire achevé pour le moment.
+                    </div>
+                `;
+                return;
+            }
+
+            finishedBooks.forEach(book => {
+                const item = document.createElement('div');
+                item.className = 'relative flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-leather/80 p-5 rounded-2xl border border-goldLeaf/40 shadow-xl';
+                
+                item.innerHTML = `
+                    <div class="absolute -left-[35px] sm:-left-[41px] w-6 h-6 rounded-full bg-goldLeaf border-4 border-leatherDark shadow-md"></div>
+                    <img src="${book.cover}" alt="${escapeHtml(book.title)}" class="w-16 h-24 object-cover rounded-xl border border-goldLeaf/40 shadow" onerror="this.src='https://placehold.co/100x150/4a2511/d4af37?text=Cover'">
+                    <div class="flex flex-col gap-1 flex-grow">
+                        <div class="flex items-center justify-between flex-wrap gap-2">
+                            <h3 class="font-cinzel text-goldLeaf font-bold text-lg">${escapeHtml(book.title)}</h3>
+                            <span class="text-xs bg-amber-900/40 text-goldLeaf px-3 py-1 rounded-full border border-goldLeaf/30 font-mono">
+                                <i class="fa-solid fa-flag-checkered mr-1"></i> Terminé le : ${book.endDate}
+                            </span>
+                        </div>
+                        <p class="text-xs font-lora italic text-parchment/80">par ${escapeHtml(book.author)}</p>
+                        ${book.comment ? `<p class="text-xs text-parchment bg-leatherDark/60 p-3 rounded-xl border border-goldLeaf/20 mt-2 font-lora">"${escapeHtml(book.comment)}"</p>` : ''}
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function populateFilters() {
+            const genreSelect = document.getElementById('genre-filter');
+            const sagaSelect = document.getElementById('saga-filter');
+
+            const rawGenres = books.map(b => b.genre).filter(Boolean);
+            const genresSet = new Set();
+            rawGenres.forEach(g => {
+                g.split(',').forEach(sub => {
+                    const clean = sub.trim();
+                    if (clean) genresSet.add(clean.charAt(0).toUpperCase() + clean.slice(1));
+                });
+            });
+            const genres = [...genresSet].sort();
+            const sagas = [...new Set(books.map(b => b.saga).filter(Boolean))].sort();
+
+            genreSelect.innerHTML = '<option value="">Tous les Genres</option>';
+            genres.forEach(g => {
+                genreSelect.innerHTML += `<option value="${g}">${g}</option>`;
+            });
+
+            sagaSelect.innerHTML = '<option value="">Toutes les Sagas</option>';
+            sagas.forEach(s => {
+                sagaSelect.innerHTML += `<option value="${s}">${s}</option>`;
+            });
+        }
+
+        function filterBooks() {
+            renderLibrary();
+        }
+
+        function switchView(viewName) {
+            const libView = document.getElementById('view-library');
+            const timeView = document.getElementById('view-timeline');
+            const controls = document.getElementById('library-controls');
+            const btnLib = document.getElementById('btn-view-library');
+            const btnTime = document.getElementById('btn-view-timeline');
+
+            if (viewName === 'library') {
+                libView.classList.remove('hidden');
+                controls.classList.remove('hidden');
+                timeView.classList.add('hidden');
+                btnLib.className = "px-4 py-2 bg-goldLeaf text-leatherDark font-cinzel font-bold text-xs md:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2";
+                btnTime.className = "px-4 py-2 bg-leather text-goldLeaf border border-goldLeaf/40 font-cinzel font-semibold text-xs md:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 hover:bg-leather/80";
+            } else {
+                libView.classList.add('hidden');
+                controls.classList.add('hidden');
+                timeView.classList.remove('hidden');
+                btnTime.className = "px-4 py-2 bg-goldLeaf text-leatherDark font-cinzel font-bold text-xs md:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2";
+                btnLib.className = "px-4 py-2 bg-leather text-goldLeaf border border-goldLeaf/40 font-cinzel font-semibold text-xs md:text-sm rounded-xl shadow-lg transition-all flex items-center gap-2 hover:bg-leather/80";
+                renderTimeline();
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').textContent = message;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3500);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
